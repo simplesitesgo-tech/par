@@ -84,6 +84,15 @@ r = Par.analyze(q([A('a', 10, 9), A('b', 10, 10), A('c', 10), A('d', 10)], { dro
 eq('drop needed p', Math.round(r.p * 1e6) / 1e6, 0.925);
 eq('drop needed score', Par.need(r, 10).score, 9.3);
 
+// Syllabus reading.
+const syl = Par.parseSyllabus('Homework .......... 20%\nQuizzes (lowest dropped) 10%\nMidterm Exams: 30% of final grade\nFinal Exam - 40%\nLate work loses 10% per day\nA 93-100  A- 90-92.9  B+ 87-89.9');
+eq('syllabus finds 4 weights', syl.items.map((i) => i.label + ' ' + i.pct).join(', '), 'Homework 20, Quizzes 10, Midterm Exams 30, Final Exam 40');
+eq('syllabus skips late policy', syl.items.some((i) => /late/i.test(i.label)), false);
+eq('syllabus finds scale', syl.scale.map((x) => x.letter + x.min).join(' '), 'A93 A-90 B+87');
+const m = Par.matchSyllabus([{ id: 'h', name: 'Homework' }, { id: 'q', name: 'Quizzes' }, { id: 'm', name: 'Midterms' }, { id: 'f', name: 'Final Exam' }], syl.items);
+eq('syllabus matches groups', [m.map.h, m.map.q, m.map.m, m.map.f].join(','), '0,1,2,3');
+eq('one line breakdown', Par.parseSyllabus('Labs 25%, Projects 35%, Exams 40%').items.length, 3);
+
 // Bad pasted data is rejected with a friendly message.
 for (const bad of ['', 'hello', '{"courses": []}', '[1,2]', 'null', '{"courses":[{"nope":1}]}']) {
   let msg = '';

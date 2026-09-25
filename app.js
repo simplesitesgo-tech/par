@@ -376,7 +376,108 @@ var Par = (function () {
     };
   }
 
+  // ---------- Reading a syllabus: pulls out "Homework 20%" style weights and a letter scale ----------
+  var DASH = '[-\\u2013\\u2014\\u2212]';
+  var POLICY = /\b(late|penalt|deduct|per day|each day|reduc|lose|loses|lost|curve|bonus|extra credit|absen|plagiar|minimum|at least|below|less than|more than|refund|tuition)\b/i;
+  var SYN = {
+    hw: 'homework', homeworks: 'homework', assignments: 'assignment', quizzes: 'quiz', quizes: 'quiz',
+    tests: 'exam', test: 'exam', exams: 'exam', examination: 'exam', examinations: 'exam', midterms: 'midterm',
+    'mid-term': 'midterm', labs: 'lab', laboratory: 'lab', papers: 'paper', essays: 'essay', projects: 'project',
+    discussions: 'discussion', attendance: 'participation', participate: 'participation', readings: 'reading',
+    responses: 'response', presentations: 'presentation', problems: 'problem', sets: 'set', reports: 'report'
+  };
+  var STOP = { and: 1, the: 1, of: 1, a: 1, in: 1, for: 1, grade: 1, total: 1, weekly: 1, class: 1, course: 1, your: 1, final_grade: 1, points: 1, pts: 1, percent: 1 };
+
+  function tokens(str) {
+    return String(str).toLowerCase().replace(/[^a-z0-9\- ]+/g, ' ').split(/\s+/).filter(Boolean)
+      .map(function (w) { w = SYN[w] || w; return w.length > 3 && /s$/.test(w) && !/ss$/.test(w) ? (SYN[w.slice(0, -1)] || w.slice(0, -1)) : w; })
+      .filter(function (w) { return !STOP[w] && !/^\d+$/.test(w); });
+  }
+
+  function similarity(a, b) {
+    var A = tokens(a), B = tokens(b);
+    if (!A.length || !B.length) return 0;
+    var hit = A.filter(function (w) { return B.indexOf(w) >= 0; }).length;
+    var score = hit / (A.length + B.length - hit);
+    if (A.join(' ') === B.join(' ')) score = 1;
+    if (A.indexOf('final') >= 0 !== B.indexOf('final') >= 0 && (A.indexOf('exam') >= 0 || B.indexOf('exam') >= 0)) score *= 0.5;
+    return score;
+  }
+
+  function cleanLabel(raw) {
+    raw = raw
+      .replace(/\(\s*\)/g, ' ')
+      .replace(/\b(of|toward|towards)\s+(the\s+|your\s+)?(final\s+|course\s+|total\s+|overall\s+)?(grade|total|mark)\b/gi, ' ')
+      .replace(/\b(weight(ed)?|worth|percent(age)?|total)\b/gi, ' ');
+    var parts = raw.split(':');
+    if (parts.length > 1 && (parts[parts.length - 1].match(/[A-Za-z]/g) || []).length >= 3) raw = parts[parts.length - 1];
+    return raw
+      .replace(/^[\s\d.)(*:=|\u2013\u2014\u2212-]+/, '')
+      .replace(/[\s.:=|,*(\-\u2013\u2014]+$/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+  }
+
+  function parseSyllabus(text) {
+    text = String(text || '').slice(0, 200000);
+    var lines = text.replace(/\r/g, '').split(/\n|•|●|▪|;/).map(function (l) { return l.replace(/[ \t ]+/g, ' ').trim(); }).filter(Boolean);
+    var scale = {}, items = [], seen = {};
+    var rangeA = new RegExp('(?:^|[\\s,(])([A-DF][+\\u2212-]?)\\s*[:=]?\\s*\\(?\\s*(\\d{2}(?:\\.\\d+)?)\\s*%?\\s*(?:' + DASH + '|to)\\s*(\\d{2,3}(?:\\.\\d+)?)', 'g');
+    var rangeB = new RegExp('(\\d{2}(?:\\.\\d+)?)\\s*%?\\s*(?:' + DASH + '|to)\\s*(\\d{2,3}(?:\\.\\d+)?)\\s*%?\\s*[:=]?\\s*([A-DF][+\\u2212-]?)(?=[\\s,).]|$)', 'g');
+    var above = /(?:^|[\s,(])([A-DF][+\u2212-]?)\s*[:=]?\s*(\d{2}(?:\.\d+)?)\s*%?\s*(?:and above|or above|or higher|or more|\+)/gi;
+    function addScale(letter, min) {
+      letter = letter.toUpperCase().replace('\u2212', '-');
+      if (letter === 'F' || !(min >= 40 && min <= 100) || scale[letter] != null) return;
+      scale[letter] = min;
+    }
+    lines.forEach(function (line) {
+      var m, found = false;
+      rangeA.lastIndex = 0; rangeB.lastIndex = 0; above.lastIndex = 0;
+      while ((m = rangeA.exec(line))) { addScale(m[1], Math.min(+m[2], +m[3])); found = true; }
+      while ((m = rangeB.exec(line))) { addScale(m[3], Math.min(+m[1], +m[2])); found = true; }
+      while ((m = above.exec(line))) { addScale(m[1], +m[2]); found = true; }
+      if (found) return;
+      if (!/%/.test(line) || POLICY.test(line)) return;
+      var chunks = (line.match(/%/g) || []).length > 1 ? line.split(/,|\||\t| {3,}|\band\b(?=[^%]*\d\s*%)/) : [line];
+      chunks.forEach(function (chunk) {
+        var pm = chunk.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
+        if (!pm) return;
+        var pct = parseFloat(pm[1]);
+        if (!(pct > 0 && pct <= 100)) return;
+        var label = cleanLabel(chunk.replace(pm[0], ' ')).replace(/\((lowest|highest)[^)]*\)/i, '').trim();
+        if ((label.match(/[A-Za-z]/g) || []).length < 3 || label.length > 70) return;
+        if (/^[A-DF][+-]?$/.test(label)) return;
+        var key = tokens(label).join(' ') || label.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        items.push({ label: label, pct: pct });
+      });
+    });
+    var scaleList = Object.keys(scale).map(function (k) { return { letter: k, min: scale[k] }; }).sort(function (a, b) { return b.min - a.min; });
+    return { items: items, scale: scaleList.length >= 3 ? scaleList : [] };
+  }
+
+  // Pairs each Canvas group with the syllabus line that fits it best (one to one).
+  function matchSyllabus(groups, items) {
+    var pairs = [];
+    groups.forEach(function (g, gi) {
+      items.forEach(function (it, ii) {
+        var sc = similarity(g.name, it.label);
+        if (sc >= 0.2) pairs.push({ gi: gi, ii: ii, sc: sc });
+      });
+    });
+    pairs.sort(function (a, b) { return b.sc - a.sc; });
+    var gUsed = {}, iUsed = {}, map = {};
+    pairs.forEach(function (pr) {
+      if (gUsed[pr.gi] || iUsed[pr.ii]) return;
+      gUsed[pr.gi] = iUsed[pr.ii] = true;
+      map[groups[pr.gi].id] = pr.ii;
+    });
+    return { map: map, unused: items.filter(function (_, i) { return !iUsed[i]; }) };
+  }
+
   return {
+    parseSyllabus: parseSyllabus, matchSyllabus: matchSyllabus,
     DEFAULT_SCALE: DEFAULT_SCALE, analyze: analyze, need: need, neededScore: neededScore,
     letterFor: letterFor, validScale: validScale, normalizePayload: normalizePayload, sampleData: sampleData, isNum: isNum
   };
@@ -397,7 +498,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     storageOk: true,
     animate: true,
     shimmer: false,
-    classFilter: null
+    classFilter: null,
+    syl: {}
   };
 
   // ---------- Storage (never crashes if blocked) ----------
@@ -597,23 +699,85 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
 
   // ---------- Screens ----------
   function viewWelcome() {
-    return '<section class="welcome">' +
-      '<div class="w-copy">' +
-        '<div class="eyebrow"><span class="dotlive"></span>For Canvas students</div>' +
-        '<h1>Know your <span class="hl">par</span> on every assignment.</h1>' +
-        '<p class="lede">Canvas tells you your grade. Par tells you what you need next. Pick a target grade and every upcoming assignment shows its par score, like <span class="mono chip">Par 43 / 50</span>, using your real grades and weights from Canvas.</p>' +
-        '<div class="cta-row">' +
-          '<a class="btn primary big" href="#/setup">Sync my Canvas</a>' +
-          '<button class="btn big" data-action="load-sample">Try with sample data</button>' +
+    var s = Par.sampleData();
+    var rows = s.data.courses.map(function (c) {
+      var an = Par.analyze(c, { target: s.targets[c.id] });
+      var pl = an.state === 'out' ? 'Max' : fmtPct(an.p * 100, 0);
+      return '<div class="lb-row"><span class="lb-code mono">' + esc(c.code) + '</span><span class="lb-name">' + esc(c.name) + '</span>' +
+        '<span class="lb-n mono">' + fmt(an.current, 1) + '</span><span class="lb-n mono accent">' + esc(an.targetLetter) + '</span>' +
+        '<span class="lb-n mono">' + pl + '</span>' + pill(an) + '</div>';
+    }).join('');
+    function feat(icon, title, text) {
+      return '<div class="feat"><div class="feat-i">' + icon + '</div><h3>' + title + '</h3><p>' + text + '</p></div>';
+    }
+    var I = {
+      flag: '<svg viewBox="0 0 24 24"><path d="M6 21V4m0 0l11 4-11 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      wand: '<svg viewBox="0 0 24 24"><path d="M4 20L15 9m2-5v3m3 0h-3m1.5 5.5v2m1-1h-2M9 4v2M8 5h2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+      doc: '<svg viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>',
+      check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      sync: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      lock: '<svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2"/></svg>'
+    };
+    return '<div class="landing">' +
+      '<section class="welcome">' +
+        '<div class="w-copy">' +
+          '<div class="badge"><span class="dotlive"></span>Works with Canvas<span class="sep"></span>Nothing leaves your browser</div>' +
+          '<h1>Every assignment<br>has a <span class="hl">par</span>.</h1>' +
+          '<p class="lede">Canvas shows your grade. Par shows what you need next. It pulls your real grades and weights from Canvas, and every assignment left gets a par score, like <span class="mono chip">Par 43 / 50</span>, to keep you on track for the grade you want.</p>' +
+          '<div class="cta-row">' +
+            '<a class="btn primary big" href="#/setup">Sync my Canvas<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>' +
+            '<button class="btn big ghost" data-action="load-sample">Try with sample data</button>' +
+          '</div>' +
+          '<div class="w-meta mono"><span>Free</span><span>No account</span><span>1 minute setup</span></div>' +
         '</div>' +
-        '<ul class="w-points">' +
-          '<li><b>One click.</b> A bookmark pulls every class, grade and weight from Canvas.</li>' +
-          '<li><b>Private.</b> Your grades never leave this browser.</li>' +
-          '<li><b>Live.</b> Change your target or add a what-if score and every number updates.</li>' +
-        '</ul>' +
-      '</div>' +
-      '<div class="w-demo" aria-hidden="true">' + demoCard() + '</div>' +
-    '</section>';
+        '<div class="w-demo" aria-hidden="true">' + demoCard() + '</div>' +
+      '</section>' +
+
+      '<section class="lb panel" aria-label="Sample scorecard">' +
+        '<div class="lb-top"><span class="lb-live mono"><span class="dotlive"></span>Scorecard</span><span class="muted small">A sample student, mid-quarter</span></div>' +
+        '<div class="lb-row lb-head mono"><span>Class</span><span></span><span class="lb-n">Now</span><span class="lb-n">Target</span><span class="lb-n">Par</span><span>Status</span></div>' +
+        rows +
+      '</section>' +
+
+      '<section class="l-sec">' +
+        '<div class="l-head"><div class="eyebrow">What you get</div><h2>The number Canvas never shows you.</h2></div>' +
+        '<div class="feats">' +
+          feat(I.flag, 'A par for every assignment', 'Pick a target like A-. Every upcoming assignment shows the exact score you need, across all your classes, sorted by due date.') +
+          feat(I.wand, 'What-if scores', 'Know you\'ll ace participation? Type a predicted score and every other par updates instantly.') +
+          feat(I.doc, 'Syllabus weights', 'Canvas weights wrong? Paste or upload your syllabus and Par reads the real breakdown.') +
+          feat(I.check, 'Checks itself against Canvas', 'Par redoes the math, drop rules included, and tells you when it matches the grade Canvas shows.') +
+          feat(I.sync, 'One-click re-sync', 'New grade posted? Click Sync Canvas and every number moves. Your targets and what-ifs stay.') +
+          feat(I.lock, 'Private by design', 'No server, no login, no tracking. Your grades are read by your browser and saved only on your device.') +
+        '</div>' +
+      '</section>' +
+
+      '<section class="l-sec how">' +
+        '<div class="l-head"><div class="eyebrow">How it works</div><h2>Set up once. Sync in one click.</h2></div>' +
+        '<ol class="how-steps">' +
+          '<li><span class="how-n display">01</span><h3>Add the button</h3><p>Drag "Sync Canvas" to your bookmarks bar. No access key needed.</p></li>' +
+          '<li><span class="how-n display">02</span><h3>Click it on Canvas</h3><p>It reads your classes with the login you already have.</p></li>' +
+          '<li><span class="how-n display">03</span><h3>Play to par</h3><p>Pick your targets and see exactly what every assignment needs.</p></li>' +
+        '</ol>' +
+      '</section>' +
+
+      '<section class="l-sec math panel">' +
+        '<div><div class="eyebrow">The math</div><h2>Straight from your grade weights.</h2>' +
+        '<p class="muted">Par finds the one average p that, scored on everything left, lands you exactly on your target. Then each assignment\'s par is p times its points, rounded up.</p></div>' +
+        '<div class="math-ex mono">' +
+          '<div class="mx-row"><span>Homework 40%</span><span>18 / 20 done, 20 left</span></div>' +
+          '<div class="mx-row"><span>Final 60%</span><span>0 / 100 done, 100 left</span></div>' +
+          '<div class="mx-row"><span>All zeros</span><span>18%</span></div>' +
+          '<div class="mx-row"><span>All perfect</span><span>98%</span></div>' +
+          '<div class="mx-row hl-row"><span>Target 90%</span><span>p = (90 - 18) / (98 - 18) = 90%</span></div>' +
+          '<div class="mx-row"><span>Par</span><span><b>18 / 20</b> homework, <b>90 / 100</b> final</span></div>' +
+        '</div>' +
+      '</section>' +
+
+      '<section class="l-final">' +
+        '<h2>Know your par before your next assignment.</h2>' +
+        '<div class="cta-row"><a class="btn primary big" href="#/setup">Sync my Canvas</a><button class="btn big ghost" data-action="load-sample">Try with sample data</button></div>' +
+      '</section>' +
+    '</div>';
   }
 
   function demoCard() {
@@ -698,9 +862,23 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       cards = '<div class="empty card"><h3>All your classes are hidden.</h3><p>Show them again to see your par scores.</p><button class="btn" data-action="unhide-all">Show all classes</button></div>';
     }
     var split = upNextSplit(upNextItems());
+    var ans = list.map(function (c) { return Par.analyze(c, pref(c.id)); });
+    var onTrack = ans.filter(function (a) { return a.status === 'par' || a.status === 'locked'; }).length;
+    var weekAhead = split.upcoming.filter(function (x) { return x.item.a.due && Date.parse(x.item.a.due) - Date.now() < 7 * 86400000; }).length;
+    var nextUp = split.upcoming[0];
+    var nextNeed = nextUp ? Par.need(nextUp.an, nextUp.item.a.pts) : null;
+    var stats = '<div class="stats">' +
+      '<div class="stat"><span class="stat-k mono">Classes</span><span class="stat-v display">' + list.length + '</span></div>' +
+      '<div class="stat"><span class="stat-k mono">On par</span><span class="stat-v display">' + onTrack + '<em>/' + list.length + '</em></span></div>' +
+      '<div class="stat"><span class="stat-k mono">Due in 7 days</span><span class="stat-v display">' + weekAhead + '</span></div>' +
+      '<div class="stat wide"><span class="stat-k mono">Next up</span>' + (nextUp ?
+        '<span class="stat-next"><b>' + esc(nextUp.item.a.name) + '</b><span class="muted small">' + esc(nextUp.c.code || nextUp.c.name) + ' · ' + esc((dueParts(nextUp.item.a.due) || {}).rel || 'No date') + '</span></span>' +
+        (nextUp.item.predicted == null && nextNeed && nextNeed.kind === 'need' ? '<span class="stat-par mono">Par ' + fmt(nextNeed.score) + '/' + fmt(nextUp.item.a.pts) + '</span>' : '') :
+        '<span class="muted">Nothing upcoming</span>') + '</div>' +
+    '</div>';
     var side = split.upcoming.slice(0, 7).map(upNextRow).join('') ||
       '<div class="muted pad">Nothing upcoming. Enjoy it.</div>';
-    return '<div class="dash">' +
+    return stats + '<div class="dash">' +
       '<section class="dash-main">' +
         '<div class="sec-head"><h2>Your classes</h2><span class="muted small">' + list.length + ' class' + (list.length === 1 ? '' : 'es') +
           (hidden ? ' · <button class="linklike" data-action="unhide-all">' + hidden + ' hidden, show</button>' : '') + '</span></div>' +
@@ -756,7 +934,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       matchBox = '<span class="match ok">' + icoCheck() + 'Matches Canvas (' + fmtPct(an.canvasScore, 2) + ')</span>';
     } else if (an.matches === false) {
       matchBox = '<div class="notice warn"><b>Doesn\'t match Canvas, check your weights.</b> Canvas shows ' + fmtPct(an.canvasScore, 2) + ' but Par gets ' + fmtPct(an.current, 2) +
-        '. Your syllabus may use weights that aren\'t set up in Canvas. <a class="linklike" href="#weights">Edit weights</a></div>';
+        '. Your syllabus may use weights that aren\'t set up in Canvas. <button class="linklike" data-action="scroll-to" data-target="syllabus">Add your syllabus</button> or <button class="linklike" data-action="scroll-to" data-target="weights">edit weights</button>.</div>';
     }
 
     var extra = '';
@@ -822,8 +1000,143 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       '</div>' +
       (anyPred ? '<div class="notice pred">Scores in <span class="pred-sample">dashed boxes</span> are your what-if guesses, not real grades yet. Par treats them as graded.</div>' : '') +
       '<div class="groups">' + groupsHtml + '</div>' +
+      syllabusHtml(c, p, an) +
       settingsHtml(c, p, an) +
     '</section>';
+  }
+
+  function syllabusHtml(c, p, an) {
+    var d = state.syl[c.id];
+    var saved = typeof p.syllabus === 'string' ? p.syllabus : '';
+    var result = '';
+    if (d && d.error) {
+      result = '<div class="notice warn">' + esc(d.error) + '</div>';
+    } else if (d) {
+      var rows = an.groups.map(function (g) {
+        var r = d.rows[g.id] || { value: 0 };
+        return '<div class="syl-row' + (r.label ? '' : ' miss') + '"><div class="syl-g"><b>' + esc(g.name) + '</b>' +
+          '<span class="syl-src' + (r.guess ? ' guess' : '') + '">' + (r.label ? (r.guess ? 'Best guess: "' : 'Syllabus: "') + esc(r.label) + '"' : 'Not found in syllabus') + '</span></div>' +
+          '<span class="w-in"><input type="text" inputmode="decimal" data-syl-weight="' + esc(g.id) + '" data-course="' + esc(c.id) + '" value="' + esc(fmt(r.value, 2)) + '"><em>%</em></span>' +
+          '<span class="syl-was mono">Canvas: ' + fmtPct(g.canvasWeight) + '</span></div>';
+      }).join('');
+      var total = an.groups.reduce(function (s2, g) { return s2 + ((d.rows[g.id] || {}).value || 0); }, 0);
+      var chips = d.items.map(function (it) {
+        return '<span class="syl-chip' + (d.unusedLabels.indexOf(it.label) >= 0 ? ' unused' : '') + '">' + esc(it.label) + ' <b class="mono">' + fmt(it.pct, 2) + '%</b></span>';
+      }).join('');
+      result =
+        '<div class="syl-found"><span class="muted small">Found in your syllabus:</span>' + chips + '</div>' +
+        (d.unusedLabels.length ? '<p class="muted small">Dimmed items didn\'t match a Canvas group. Add their weight to the right group below if they belong together.</p>' : '') +
+        '<form data-form="syl-apply" data-course="' + esc(c.id) + '"><div class="syl-rows">' + rows + '</div>' +
+        '<div class="w-foot"><span class="mono small ' + (Math.abs(total - 100) > 0.01 ? 'warn-text' : 'muted') + '">Total: ' + fmt(total, 2) + '%' + (Math.abs(total - 100) > 0.01 ? ' (usually adds to 100)' : '') + '</span>' +
+        (d.scale.length ? '<label class="check"><input type="checkbox" name="scale" checked> Also use the syllabus letter scale (' + d.scale.map(function (x) { return esc(x.letter) + ' ' + fmt(x.min, 2); }).join(', ') + ')</label>' : '') +
+        '<span class="w-btns"><button type="button" class="btn small ghost" data-action="syl-cancel" data-course="' + esc(c.id) + '">Cancel</button><button class="btn small primary">Use these weights</button></span></div></form>';
+    }
+    return '<section class="panel syllabus" id="syllabus">' +
+      '<div class="syl-head"><div><div class="sec-head"><h2>Syllabus weights</h2>' + (p.sylApplied ? '<span class="pill par"><i></i>Using syllabus</span>' : '') + '</div>' +
+      '<p class="muted small">Canvas weights wrong or missing? Paste the grading part of your syllabus, or upload the PDF. Par finds lines like "Homework 20%" and matches them to your Canvas groups. It all happens in this browser.</p></div></div>' +
+      '<textarea id="syl-' + esc(c.id) + '" data-syl-text="' + esc(c.id) + '" rows="5" spellcheck="false" placeholder="Example:\nHomework 20%\nQuizzes 10%\nMidterm Exam 30%\nFinal Exam 40%">' + esc(saved) + '</textarea>' +
+      '<div class="syl-actions"><label class="btn small ghost file-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0l-4 4m4-4l4 4M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Upload PDF<input type="file" accept=".pdf,.txt,application/pdf,text/plain" data-syl-file="' + esc(c.id) + '"></label>' +
+      '<button class="btn small primary" data-action="syl-read" data-course="' + esc(c.id) + '">Find weights</button>' +
+      '<span class="muted small" id="sylStatus-' + esc(c.id) + '"></span></div>' +
+      result +
+    '</section>';
+  }
+
+  function readSyllabus(id, text) {
+    var c = findCourse(id);
+    if (!c) return;
+    var p = pref(id);
+    p.syllabus = String(text || '').slice(0, 60000);
+    save();
+    if (!p.syllabus.trim()) { state.syl[id] = { error: 'The syllabus box is empty. Paste the grading section, or upload the PDF.' }; render({ keepScroll: true }); return; }
+    var parsed = Par.parseSyllabus(p.syllabus);
+    if (!parsed.items.length) {
+      state.syl[id] = { error: 'Par couldn\'t find any percentages. Paste just the grading breakdown, with lines like "Homework 20%". If your syllabus uses points instead of percents, type the weights in the Grade weights box below.' };
+      render({ keepScroll: true });
+      return;
+    }
+    var m = Par.matchSyllabus(c.groups, parsed.items);
+    var rows = {};
+    var openGroups = c.groups.filter(function (g) { return m.map[g.id] == null && g.assignments.length; });
+    if (openGroups.length === 1 && m.unused.length === 1) {
+      m.map[openGroups[0].id] = parsed.items.indexOf(m.unused[0]);
+      m.guess = openGroups[0].id;
+      m.unused = [];
+    }
+    c.groups.forEach(function (g) {
+      var ii = m.map[g.id];
+      rows[g.id] = ii != null ? { value: parsed.items[ii].pct, label: parsed.items[ii].label, guess: m.guess === g.id } : { value: 0 };
+    });
+    state.syl[id] = { items: parsed.items, rows: rows, scale: parsed.scale, unusedLabels: m.unused.map(function (x) { return x.label; }) };
+    render({ keepScroll: true });
+    var box = document.getElementById('syllabus');
+    if (box && box.scrollIntoView) box.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  }
+
+  var pdfjsPromise = null;
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (pdfjsPromise) return pdfjsPromise;
+    pdfjsPromise = new Promise(function (resolve, reject) {
+      var sc = document.createElement('script');
+      sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      sc.onload = function () {
+        if (!window.pdfjsLib) { reject(new Error('PDF reader missing')); return; }
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        resolve(window.pdfjsLib);
+      };
+      sc.onerror = function () { pdfjsPromise = null; reject(new Error('Could not load the PDF reader')); };
+      document.head.appendChild(sc);
+    });
+    return pdfjsPromise;
+  }
+
+  function pdfToText(file) {
+    return Promise.all([loadPdfJs(), file.arrayBuffer()]).then(function (res) {
+      return res[0].getDocument({ data: res[1] }).promise;
+    }).then(function (doc) {
+      var pages = [];
+      for (var i = 1; i <= Math.min(doc.numPages, 40); i++) pages.push(i);
+      return Promise.all(pages.map(function (n) {
+        return doc.getPage(n).then(function (pg) { return pg.getTextContent(); }).then(function (tc) {
+          var out = '', lastY = null;
+          tc.items.forEach(function (it) {
+            var y = it.transform ? Math.round(it.transform[5]) : null;
+            if (lastY != null && y != null && Math.abs(y - lastY) > 2) out += '\n';
+            else if (out && !/\s$/.test(out)) out += ' ';
+            out += it.str;
+            if (it.hasEOL) out += '\n';
+            lastY = y;
+          });
+          return out;
+        });
+      }));
+    }).then(function (texts) { return texts.join('\n'); });
+  }
+
+  function handleSyllabusFile(input) {
+    var id = input.getAttribute('data-syl-file');
+    var file = input.files && input.files[0];
+    if (!file) return;
+    var status = document.getElementById('sylStatus-' + id);
+    var box = document.getElementById('syl-' + id);
+    if (file.size > 25e6) { toast('That file is too big. Try a PDF under 25 MB.'); return; }
+    var isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+    if (status) status.textContent = 'Reading ' + file.name + '...';
+    var job = isPdf ? pdfToText(file) : file.text();
+    job.then(function (text) {
+      if (!text || !text.trim()) throw new Error('empty');
+      if (box) box.value = text;
+      readSyllabus(id, text);
+      toast('Read ' + file.name + '. Check the weights below.', 'ok');
+    }).catch(function (err) {
+      if (status) status.textContent = '';
+      state.syl[id] = { error: err && err.message === 'empty' ?
+        'That PDF has no readable text (it may be a scanned image). Copy the grading section from the syllabus and paste it in the box instead.' :
+        'Par couldn\'t read that file. Open the syllabus, copy the grading section, and paste it in the box instead.' };
+      render({ keepScroll: true });
+    });
+    input.value = '';
   }
 
   function settingsHtml(c, p, an) {
@@ -900,7 +1213,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   function renderTop() {
     var d = state.store.data;
     var tr = $('#topRight');
-    if (!d) { tr.innerHTML = ''; return; }
+    if (!d) {
+      tr.innerHTML = '<button class="btn small ghost hide-sm" data-action="load-sample">Try the demo</button><a class="btn small primary" href="#/setup">Get started</a>';
+      return;
+    }
     tr.innerHTML = '<span class="synced mono"><span class="dotlive"></span>' + (d.sample ? 'Sample data' : 'Synced ' + ago(d.syncedAt)) + '</span>' +
       '<button class="btn small primary" data-action="sync-help">' +
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M18 3v4h-4M6 21v-4h4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Sync</button>';
@@ -910,11 +1226,11 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     var b = $('#banner');
     var html = '';
     if (state.store.data && state.store.data.sample) {
-      html += '<div class="banner wrap"><span><b>Sample data.</b> This is a made-up student so you can try Par. Nothing here is real.</span>' +
-        '<span class="banner-btns"><a class="btn small primary" href="#/setup">Sync my Canvas</a><button class="btn small ghost" data-action="clear-sample">Clear sample data</button></span></div>';
+      html += '<div class="wrap"><div class="banner"><span><b>Sample data.</b> This is a made-up student so you can try Par. Nothing here is real.</span>' +
+        '<span class="banner-btns"><a class="btn small primary" href="#/setup">Sync my Canvas</a><button class="btn small ghost" data-action="clear-sample">Clear sample data</button></span></div></div>';
     }
     if (!state.storageOk) {
-      html += '<div class="banner wrap warn"><span><b>Heads up:</b> your browser is blocking storage, so Par will forget your classes when you close this tab. Private windows often do this.</span></div>';
+      html += '<div class="wrap"><div class="banner warn"><span><b>Heads up:</b> your browser is blocking storage, so Par will forget your classes when you close this tab. Private windows often do this.</span></div></div>';
     }
     b.innerHTML = html;
   }
@@ -1210,13 +1526,24 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       case 'sync-help': syncHelp(); break;
       case 'filter': state.classFilter = id || null; render({ keepScroll: true }); break;
       case 'clear-whatif': pref(id).predictions = {}; save(); render({ keepScroll: true }); toast('What-if scores cleared.'); break;
-      case 'reset-weights': delete pref(id).weights; delete pref(id).weighted; save(); render({ keepScroll: true }); toast('Weights reset to what Canvas has.'); break;
+      case 'reset-weights': delete pref(id).weights; delete pref(id).weighted; delete pref(id).sylApplied; save(); render({ keepScroll: true }); toast('Weights reset to what Canvas has.'); break;
       case 'reset-scale': delete pref(id).scale; save(); render({ keepScroll: true }); toast('Letter scale reset.'); break;
       case 'hide': pref(id).hidden = true; save(); location.hash = '#/'; toast('Class hidden. Show it again from the dashboard.'); break;
       case 'unhide-all': courses().forEach(function (c) { delete pref(c.id).hidden; }); save(); render(); break;
       case 'copy-error':
         copyText(t.getAttribute('data-details') || '').then(function (ok) { toast(ok ? 'Error details copied. Paste them to whoever is helping you.' : 'Could not copy. Select the text and copy it by hand.'); });
         break;
+      case 'syl-read': {
+        var ta = document.getElementById('syl-' + id);
+        readSyllabus(id, ta ? ta.value : '');
+        break;
+      }
+      case 'scroll-to': {
+        var el = document.getElementById(t.getAttribute('data-target'));
+        if (el) el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+        break;
+      }
+      case 'syl-cancel': delete state.syl[id]; render({ keepScroll: true }); break;
       case 'bm-click':
         e.preventDefault();
         toast('Drag this button to your bookmarks bar instead of clicking it.');
@@ -1232,6 +1559,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
 
   document.addEventListener('change', function (e) {
     var t = e.target;
+    if (t.hasAttribute && t.hasAttribute('data-syl-file')) { handleSyllabusFile(t); return; }
     if (t.getAttribute('data-action') === 'toggle-weights') {
       var p = pref(t.getAttribute('data-course'));
       p.weighted = t.checked;
@@ -1242,6 +1570,18 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
 
   document.addEventListener('input', function (e) {
     var t = e.target;
+    if (t.hasAttribute && t.hasAttribute('data-syl-weight')) {
+      var d = state.syl[t.getAttribute('data-course')];
+      var gid = t.getAttribute('data-syl-weight');
+      if (d && d.rows) { d.rows[gid] = d.rows[gid] || { value: 0 }; d.rows[gid].value = parseFloat(t.value) || 0; }
+      return;
+    }
+    if (t.hasAttribute && t.hasAttribute('data-syl-text')) {
+      var sp = pref(t.getAttribute('data-syl-text'));
+      sp.syllabus = t.value.slice(0, 60000);
+      save();
+      return;
+    }
     if (t.getAttribute('data-action') !== 'whatif') return;
     var id = t.getAttribute('data-course'), aid = t.getAttribute('data-aid');
     var pts = parseFloat(t.getAttribute('data-pts'));
@@ -1295,6 +1635,28 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       });
       if (badS) { toast('Each letter needs a number, like 93.'); return; }
       pref(id).scale = scale; save(); render({ keepScroll: true }); toast('Letter scale saved.', 'ok');
+    } else if (kind === 'syl-apply') {
+      var sw = {}, sbad = false;
+      $$('[data-syl-weight]', f).forEach(function (inp) {
+        var v = inp.value.trim() === '' ? 0 : parseFloat(inp.value);
+        if (!isNum(v) || v < 0 || v > 1000) { sbad = true; inp.classList.add('bad'); } else sw[inp.getAttribute('data-syl-weight')] = v;
+      });
+      if (sbad) { toast('Weights need to be numbers like 20 or 12.5.'); return; }
+      var sp2 = pref(id);
+      sp2.weights = sw; sp2.weighted = true; sp2.sylApplied = true;
+      var draft = state.syl[id];
+      var useScale = f.querySelector('input[name="scale"]');
+      if (draft && draft.scale.length && useScale && useScale.checked) {
+        var merged = {};
+        (Par.validScale(sp2.scale) || Par.DEFAULT_SCALE).forEach(function (x) { merged[x.letter] = x.min; });
+        draft.scale.forEach(function (x) { merged[x.letter] = x.min; });
+        sp2.scale = Object.keys(merged).map(function (k) { return { letter: k, min: merged[k] }; }).sort(function (a, b) { return b.min - a.min; });
+      }
+      delete state.syl[id];
+      save();
+      state.animate = true;
+      render({ keepScroll: true });
+      toast('Using your syllabus weights for this class.', 'ok');
     } else if (kind === 'target') {
       var tv = parseFloat(f.querySelector('input').value);
       if (!isNum(tv) || tv <= 0 || tv > 150) { toast('Type a target like 90 or 87.5.'); return; }
