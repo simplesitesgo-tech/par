@@ -629,21 +629,31 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   }
 
   // ---------- Pieces of UI ----------
+  // Grade ring. The flag is planted on the ring at your target, like a pin on the green.
   function ring(an, size) {
     size = size || 132;
-    var sw = size > 100 ? 10 : 7;
-    var r = (size - sw) / 2 - 4;
+    var sw = size > 100 ? 9 : 7;
+    var L = Math.round(size * 0.13);
+    var r = (size - sw) / 2 - L;
     var c = 2 * Math.PI * r;
     var cur = isNum(an.current) ? Math.max(0, Math.min(100, an.current)) : 0;
     var off = c * (1 - cur / 100);
     var ang = (Math.max(0, Math.min(100, an.target)) / 100) * 2 * Math.PI - Math.PI / 2;
-    var cx = size / 2, tx = cx + r * Math.cos(ang), ty = cx + r * Math.sin(ang);
+    var ux = Math.cos(ang), uy = Math.sin(ang), nx = -uy, ny = ux;
+    var cx = size / 2, px = cx + r * ux, py = cx + r * uy;
+    var qx = px + ux * (L + sw / 2), qy = py + uy * (L + sw / 2);
+    var f1x = qx - ux * L * 0.5 + nx * L * 0.62, f1y = qy - uy * L * 0.5 + ny * L * 0.62;
+    var f2x = qx - ux * L * 0.95, f2y = qy - uy * L * 0.95;
+    function n(v) { return v.toFixed(2); }
     return '<svg class="ring s-' + STATUS[an.status].cls + '" viewBox="0 0 ' + size + ' ' + size + '" width="' + size + '" height="' + size + '" aria-hidden="true">' +
-      '<circle class="ring-track" cx="' + cx + '" cy="' + cx + '" r="' + r + '" stroke-width="' + sw + '"/>' +
-      '<circle class="ring-arc" cx="' + cx + '" cy="' + cx + '" r="' + r + '" stroke-width="' + sw + '" stroke-dasharray="' + c.toFixed(2) + '" ' +
-      'stroke-dashoffset="' + (state.animate && !reduceMotion ? c.toFixed(2) : off.toFixed(2)) + '" data-off="' + off.toFixed(2) + '" transform="rotate(-90 ' + cx + ' ' + cx + ')"/>' +
-      '<circle class="ring-target" cx="' + tx.toFixed(2) + '" cy="' + ty.toFixed(2) + '" r="' + (sw / 2 + 2.5) + '"/>' +
-      '</svg>';
+      '<circle class="ring-track" cx="' + cx + '" cy="' + cx + '" r="' + n(r) + '" stroke-width="' + sw + '"/>' +
+      '<circle class="ring-arc" cx="' + cx + '" cy="' + cx + '" r="' + n(r) + '" stroke-width="' + sw + '" stroke-dasharray="' + n(c) + '" ' +
+      'stroke-dashoffset="' + (state.animate && !reduceMotion ? n(c) : n(off)) + '" data-off="' + n(off) + '" transform="rotate(-90 ' + cx + ' ' + cx + ')"/>' +
+      '<g class="ring-flag">' +
+        '<circle class="ring-hole" cx="' + n(px) + '" cy="' + n(py) + '" r="' + (sw / 2 + 1.5) + '"/>' +
+        '<line class="ring-pole" x1="' + n(px) + '" y1="' + n(py) + '" x2="' + n(qx) + '" y2="' + n(qy) + '"/>' +
+        '<path class="ring-pennant" d="M' + n(qx) + ' ' + n(qy) + 'L' + n(f1x) + ' ' + n(f1y) + 'L' + n(f2x) + ' ' + n(f2y) + 'Z"/>' +
+      '</g></svg>';
   }
 
   function counter(value, dec, suffix, cls) {

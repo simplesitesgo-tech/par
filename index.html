@@ -5,48 +5,54 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Par: the score you need on every assignment</title>
 <meta name="description" content="Par pulls your real Canvas grades and shows the exact score you need on every remaining assignment to hit your target grade. Everything stays in your browser.">
-<meta name="theme-color" content="#0A0F1A" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#F4F6FA" media="(prefers-color-scheme: light)">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='11' fill='%23111A2C'/%3E%3Ccircle cx='20' cy='20' r='12.5' fill='none' stroke='%23ffffff' stroke-opacity='.18' stroke-width='3'/%3E%3Cpath d='M20 7.5a12.5 12.5 0 1 1-12.5 12.5' fill='none' stroke='%23C6FF3D' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M18.2 12.6v14' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'/%3E%3Cpath d='M18.9 12.8l6.6 2.7-6.6 2.7z' fill='%23C6FF3D'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0F1513" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%230F7A4A'/%3E%3Ccircle cx='20' cy='21' r='11.5' fill='none' stroke='%23fff' stroke-opacity='.28' stroke-width='3'/%3E%3Cpath d='M20 9.5a11.5 11.5 0 1 1-11.5 11.5' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M19 13.5v13' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'/%3E%3Cpath d='M19.8 13.6l6.4 2.6-6.4 2.6z' fill='%23F5C518'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=8">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=9">
 </head>
 <body>
-  <div class="bg" aria-hidden="true"><div class="grid"></div><div class="glow g1"></div><div class="glow g2"></div><div class="grain"></div></div>
-
-  <header class="top">
-    <div class="top-in">
-      <a class="brand" href="#/" aria-label="Par home"><svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="lgBg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1C2740"/><stop offset="1" stop-color="#0A0F1A"/></linearGradient></defs><rect x=".5" y=".5" width="39" height="39" rx="11" fill="url(#lgBg)" stroke="rgba(255,255,255,.14)"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="rgba(255,255,255,.13)" stroke-width="3"/><path d="M20 7.5a12.5 12.5 0 1 1-12.5 12.5" fill="none" stroke="#C6FF3D" stroke-width="3" stroke-linecap="round"/><ellipse cx="19.2" cy="26.6" rx="3.4" ry="1.1" fill="#fff" fill-opacity=".35"/><path d="M18.2 12.6v14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M18.9 12.8l6.6 2.7-6.6 2.7z" fill="#C6FF3D"/></svg><span class="wm">par</span></a>
-      <nav class="tabs" id="tabs" aria-label="Main">
-        <a href="#/" data-tab="home">Dashboard</a>
-        <a href="#/next" data-tab="next">Up next</a>
-        <a href="#/setup" data-tab="setup">Setup</a>
-      </nav>
-      <div class="top-right" id="topRight"></div>
+  <a class="skip" href="#app">Skip to content</a>
+  <aside class="side" aria-label="Main menu">
+    <a class="brand" href="#/" aria-label="Par home"><svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="10" fill="#0F7A4A"/><circle cx="20" cy="21" r="11.5" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="3"/><path d="M20 9.5a11.5 11.5 0 1 1-11.5 11.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M19 13.5v13" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M19.8 13.6l6.4 2.6-6.4 2.6z" fill="#F5C518"/></svg><span class="wm">Par</span></a>
+    <nav class="tabs" id="tabs">
+      <a href="#/" data-tab="home"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg><span>Dashboard</span></a>
+      <a href="#/next" data-tab="next"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>Up next</span></a>
+      <a href="#/setup" data-tab="setup"><svg viewBox="0 0 24 24"><path d="M6 21V4m0 0l11 4-11 4"/></svg><span>Setup</span></a>
+    </nav>
+    <div class="side-foot">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l7.5 2.8v5.6c0 4.8-3.2 8.9-7.5 10.6-4.3-1.7-7.5-5.8-7.5-10.6V5.3L12 2.5z"/><path d="M8.8 12l2.2 2.2 4.2-4.6"/></svg>
+      <span>Your grades stay in this browser. No server, no account.</span>
     </div>
-  </header>
+  </aside>
 
-  <div id="banner"></div>
-  <main id="app" class="wrap" tabindex="-1"></main>
-
-  <footer class="foot wrap">
-    <div class="privacy">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8 3v6c0 5-3.4 9.4-8 11-4.6-1.6-8-6-8-11V5l8-3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span><strong>Your grades never leave this browser.</strong> No server, no account, no tracking. Par saves everything on this device only.</span>
-    </div>
-    <div class="foot-row">
-      <a class="brand small" href="#/" aria-label="Par home"><svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="lgBg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1C2740"/><stop offset="1" stop-color="#0A0F1A"/></linearGradient></defs><rect x=".5" y=".5" width="39" height="39" rx="11" fill="url(#lgBg)" stroke="rgba(255,255,255,.14)"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="rgba(255,255,255,.13)" stroke-width="3"/><path d="M20 7.5a12.5 12.5 0 1 1-12.5 12.5" fill="none" stroke="#C6FF3D" stroke-width="3" stroke-linecap="round"/><ellipse cx="19.2" cy="26.6" rx="3.4" ry="1.1" fill="#fff" fill-opacity=".35"/><path d="M18.2 12.6v14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M18.9 12.8l6.6 2.7-6.6 2.7z" fill="#C6FF3D"/></svg><span class="wm">par</span></a>
-      <span class="foot-meta">Every assignment has a par. Hit it and you hit your grade.</span>
-      <nav class="foot-links"><a href="#/">Dashboard</a><a href="#/next">Up next</a><a href="#/setup">Setup</a></nav>
-    </div>
-  </footer>
+  <div class="shell">
+    <header class="top">
+      <div class="top-in">
+        <a class="brand top-brand" href="#/" aria-label="Par home"><svg class="logo" viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" rx="10" fill="#0F7A4A"/><circle cx="20" cy="21" r="11.5" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="3"/><path d="M20 9.5a11.5 11.5 0 1 1-11.5 11.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M19 13.5v13" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M19.8 13.6l6.4 2.6-6.4 2.6z" fill="#F5C518"/></svg><span class="wm">Par</span></a>
+        <div class="top-right" id="topRight"></div>
+      </div>
+    </header>
+    <div id="banner"></div>
+    <main id="app" class="wrap" tabindex="-1"></main>
+    <footer class="foot wrap">
+      <div class="privacy">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l7.5 2.8v5.6c0 4.8-3.2 8.9-7.5 10.6-4.3-1.7-7.5-5.8-7.5-10.6V5.3L12 2.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.8 12l2.2 2.2 4.2-4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span><strong>Your grades never leave this browser.</strong> No server, no account, no tracking. Par saves everything on this device only.</span>
+      </div>
+      <div class="foot-row">
+        <span class="foot-meta">Par shows the score you need on every assignment to hit the grade you want.</span>
+        <nav class="foot-links"><a href="#/">Dashboard</a><a href="#/next">Up next</a><a href="#/setup">Setup</a></nav>
+      </div>
+    </footer>
+  </div>
 
   <div id="layer"></div>
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="bookmarklet.js?v=8"></script>
-  <script src="app.js?v=8"></script>
+  <script src="bookmarklet.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>
