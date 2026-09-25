@@ -37,6 +37,49 @@ var Par = (function () {
     return Math.ceil(p * pts * 10 - 1e-6) / 10;
   }
 
+  // Canvas drop rules. Picks which scores to drop the same way Canvas does:
+  // drop_lowest removes the scores that leave the HIGHEST group percent,
+  // drop_highest then removes the ones that leave the LOWEST. never_drop items are always kept.
+  function applyDrops(items, rules) {
+    var low = Math.max(0, Math.floor(rules.drop_lowest || 0));
+    var high = Math.max(0, Math.floor(rules.drop_highest || 0));
+    if (!low && !high) return items;
+    var never = {};
+    (rules.never_drop || []).forEach(function (id) { never[String(id)] = true; });
+    var keep = items.slice();
+    function dropBest(k, wantHigh) {
+      var droppable = keep.filter(function (it) { return !never[it.id]; });
+      k = Math.min(k, droppable.length, keep.length - 1);
+      if (k <= 0) return;
+      // Find the ratio q the kept set can reach, by bisection. For a guess q, each item is worth e - q*g.
+      var lo = -1, hi = 1e3;
+      function pick(q) {
+        var vals = droppable.map(function (it) { return { it: it, v: it.e - q * it.g }; });
+        vals.sort(function (a, b) { return wantHigh ? a.v - b.v : b.v - a.v; });
+        var dropped = vals.slice(0, k).map(function (x) { return x.it; });
+        var kept = keep.filter(function (it) { return dropped.indexOf(it) < 0; });
+        var sum = kept.reduce(function (s, it) { return s + it.e - q * it.g; }, 0);
+        return { kept: kept, ok: wantHigh ? sum >= 0 : sum <= 0 };
+      }
+      var best = null;
+      for (var i = 0; i < 60; i++) {
+        var mid = (lo + hi) / 2, r = pick(mid);
+        if (r.ok) { best = r; if (wantHigh) lo = mid; else hi = mid; }
+        else { if (wantHigh) hi = mid; else lo = mid; }
+      }
+      keep = (best || pick(wantHigh ? lo : hi)).kept;
+    }
+    dropBest(low, true);
+    dropBest(high, false);
+    return keep;
+  }
+
+  function sumItems(items) {
+    var E = 0, G = 0;
+    items.forEach(function (it) { E += it.e; G += it.g; });
+    return { E: E, G: G };
+  }
+
   // The heart of Par. Works out current grade, the "par" average p, and status for one class.
   function analyze(course, pref) {
     pref = pref || {};
@@ -49,9 +92,12 @@ var Par = (function () {
       var gr = {
         id: g.id, name: g.name, weight: Math.max(0, w), canvasWeight: isNum(g.weight) ? g.weight : 0,
         rules: g.rules || {}, graded: [], remaining: [], skipped: [],
-        E: 0, G: 0, R: 0, Er: 0, Gr: 0
+        E: 0, G: 0, R: 0, Er: 0, Gr: 0,
+        realItems: [], knownItems: [], openItems: []
       };
-      gr.drops = (gr.rules.drop_lowest || 0) + (gr.rules.drop_highest || 0) > 0;
+      gr.dropLow = Math.floor(gr.rules.drop_lowest || 0);
+      gr.dropHigh = Math.floor(gr.rules.drop_highest || 0);
+      gr.drops = gr.dropLow + gr.dropHigh > 0;
       (g.assignments || []).forEach(function (a) {
         var pts = isNum(a.pts) && a.pts > 0 ? a.pts : 0;
         if (a.excused) gr.skipped.push({ a: a, why: 'Excused' });
@@ -59,51 +105,66 @@ var Par = (function () {
         else if (isNum(a.score)) {
           gr.E += a.score; gr.G += pts; gr.Er += a.score; gr.Gr += pts;
           gr.graded.push({ a: a });
+          gr.realItems.push({ id: a.id, e: a.score, g: pts });
+          gr.knownItems.push({ id: a.id, e: a.score, g: pts });
         } else if (pts === 0) gr.skipped.push({ a: a, why: 'Worth 0 points' });
         else if (isNum(preds[a.id])) {
           gr.E += preds[a.id]; gr.G += pts;
           gr.remaining.push({ a: a, predicted: preds[a.id] });
+          gr.knownItems.push({ id: a.id, e: preds[a.id], g: pts });
         } else {
           gr.R += pts;
           gr.remaining.push({ a: a });
+          gr.openItems.push({ id: a.id, g: pts });
         }
       });
       return gr;
     });
 
+    var anyDrops = groups.some(function (g) { return g.drops; });
     var counted = groups.filter(function (g) { return g.G + g.R > 0; });
     var W = counted.reduce(function (s, g) { return s + g.weight; }, 0);
     var weighted = useWeights && W > 0;
     var weightsBroken = useWeights && counted.length > 0 && W <= 0;
 
-    function F(p) {
-      if (weighted) {
-        return counted.reduce(function (s, g) { return s + g.weight * (g.E + p * g.R) / (g.G + g.R); }, 0) / W * 100;
-      }
-      var E = 0, D = 0, R = 0;
-      groups.forEach(function (g) { E += g.E; D += g.G + g.R; R += g.R; });
-      return D > 0 ? (E + p * R) / D * 100 : null;
+    // Group totals after drop rules. p = the average assumed on every open assignment.
+    function groupAt(g, p) {
+      var items = g.knownItems.concat(g.openItems.map(function (it) { return { id: it.id, e: p * it.g, g: it.g }; }));
+      return sumItems(applyDrops(items, g.rules));
     }
 
-    function gradeFrom(kE, kG) {
-      var gs = groups.filter(function (g) { return g[kG] > 0; });
-      if (!gs.length) return null;
+    function combine(parts) {
+      var use = parts.filter(function (x) { return x.G > 0 || (!weighted && x.E > 0); });
       if (weighted) {
-        var w = gs.reduce(function (s, g) { return s + g.weight; }, 0);
-        if (w > 0) return gs.reduce(function (s, g) { return s + g.weight * g[kE] / g[kG]; }, 0) / w * 100;
+        use = use.filter(function (x) { return x.G > 0; });
+        var w = use.reduce(function (s, x) { return s + x.w; }, 0);
+        if (w > 0) return use.reduce(function (s, x) { return s + x.w * x.E / x.G; }, 0) / w * 100;
       }
       var E = 0, D = 0;
-      gs.forEach(function (g) { E += g[kE]; D += g[kG]; });
-      return E / D * 100;
+      use.forEach(function (x) { E += x.E; D += x.G; });
+      return D > 0 ? E / D * 100 : null;
+    }
+
+    function F(p) {
+      return combine(groups.map(function (g) {
+        var t = groupAt(g, p); t.w = g.weight; return t;
+      }));
+    }
+
+    function gradeFrom(key) {
+      return combine(groups.map(function (g) {
+        var t = sumItems(applyDrops(g[key], g.rules)); t.w = g.weight; return t;
+      }));
     }
 
     groups.forEach(function (g) {
-      g.current = g.Gr > 0 ? g.Er / g.Gr * 100 : null;
+      var real = sumItems(applyDrops(g.realItems, g.rules));
+      g.current = real.G > 0 ? real.E / real.G * 100 : null;
       g.share = weighted && W > 0 ? g.weight / W * 100 : null;
     });
 
-    var current = gradeFrom('Er', 'Gr');
-    var projected = gradeFrom('E', 'G');
+    var current = gradeFrom('realItems');
+    var projected = gradeFrom('knownItems');
     var target = isNum(pref.target) ? pref.target : defaultTarget(current, scale);
     var f0 = counted.length ? F(0) : null;
     var f1 = counted.length ? F(1) : null;
@@ -115,12 +176,22 @@ var Par = (function () {
     var state, p = null;
     if (f0 == null) { state = 'empty'; p = target / 100; }
     else if (f1 - f0 < 1e-9) state = 'done';
+    else if (target > f1 + 1e-9) state = 'out';
+    else if (target <= f0) state = 'locked';
     else {
-      p = (target - f0) / (f1 - f0);
-      if (p > 1 + 1e-9) state = 'out';
-      else if (p <= 0) state = 'locked';
-      else state = 'live';
+      state = 'live';
+      if (!anyDrops) p = (target - f0) / (f1 - f0);
+      else {
+        // With drop rules the grade is no longer a straight line in p, so search for the smallest p that works.
+        var lo = 0, hi = 1;
+        for (var i = 0; i < 50; i++) {
+          var mid = (lo + hi) / 2;
+          if (F(mid) >= target - 1e-9) hi = mid; else lo = mid;
+        }
+        p = hi;
+      }
     }
+    if (state === 'out') p = f1 - f0 > 0 ? (target - f0) / (f1 - f0) : null;
 
     var status;
     if (state === 'out') status = 'out';
@@ -133,7 +204,7 @@ var Par = (function () {
     var bestTarget = null;
     if (state === 'out' || (state === 'done' && status === 'out')) {
       var ceiling = state === 'done' ? f0 : f1;
-      for (var i = 0; i < scale.length; i++) if (scale[i].min <= ceiling + 1e-9) { bestTarget = scale[i]; break; }
+      for (var j = 0; j < scale.length; j++) if (scale[j].min <= ceiling + 1e-9) { bestTarget = scale[j]; break; }
     }
 
     var canvasScore = isNum(course.canvasScore) ? course.canvasScore : null;
@@ -189,6 +260,7 @@ var Par = (function () {
     if (g.rules && typeof g.rules === 'object') {
       if (num(g.rules.drop_lowest)) rules.drop_lowest = g.rules.drop_lowest;
       if (num(g.rules.drop_highest)) rules.drop_highest = g.rules.drop_highest;
+      if (Array.isArray(g.rules.never_drop)) rules.never_drop = g.rules.never_drop.slice(0, 200).map(function (x) { return str(x, 40); }).filter(Boolean);
     }
     return {
       id: id, name: str(g.name, 120) || 'Assignments', weight: num(g.weight), rules: rules,
@@ -502,6 +574,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
     if (an.state === 'empty' || (an.noGrades && an.state === 'live')) {
       return 'No grades yet. Aim for ' + fmtPct(an.p * 100) + ' on everything to get ' + article(L) + ' ' + L + '.';
     }
+    if (an.state === 'done' && an.remainingCount) return 'What\'s left doesn\'t change your grade (it\'s in 0% groups). Final: ' + fmtPct(an.f0) + '.';
     if (an.state === 'done') return 'Nothing left to grade. Final: ' + fmtPct(an.f0) + '.';
     if (an.state === 'out') {
       return 'Out of reach. The best you can get is ' + fmtPct(an.f1) + ' (' + (Par.letterFor(an.f1, an.scale) || 'F') + ').';
@@ -570,7 +643,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
         '<div class="card-side">' +
           (isDemo ? '<div class="target-btn static"><span class="tb-k">Target</span><span class="tb-v">' + esc(an.targetLetter) + '</span></div>' : targetButton(c, an)) +
           '<div class="par-big"><div class="par-k">' + esc(pl.label) + '</div><div class="par-v display">' + esc(pl.big) + '</div></div>' +
-          '<div class="card-meta mono">' + (an.remainingCount ? an.remainingCount + ' left' : 'Nothing left') + (an.predictedCount ? ' · ' + an.predictedCount + ' what-if' : '') + '</div>' +
+          '<div class="card-meta mono">' + (an.remainingCount ? an.remainingCount + ' left' + (an.state === 'done' ? ', 0% weight' : '') : 'Nothing left') + (an.predictedCount ? ' · ' + an.predictedCount + ' what-if' : '') + '</div>' +
         '</div>' +
       '</div>' +
       (isDemo ? '' : '<div class="card-foot">' + check + (c.error ? '<span class="match bad">' + esc(c.error) + '</span>' : '') + '</div>');
@@ -697,7 +770,10 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
       var head = '<div class="g-head"><div><h3>' + esc(g.name) + '</h3>' +
         '<div class="g-sub mono">' + (an.weighted ? fmtPct(g.weight) + ' of grade' + (Math.abs(g.share - g.weight) > 0.05 ? ' (counts as ' + fmtPct(g.share) + ')' : '') : 'Points') +
         (g.current != null ? ' · You: ' + fmtPct(g.current) : '') + '</div></div></div>';
-      var drop = g.drops ? '<div class="notice tiny">This group drops the lowest score, so your real grade may be a bit higher.</div>' : '';
+      var dropBits = [];
+      if (g.dropLow) dropBits.push('your lowest ' + (g.dropLow === 1 ? 'score' : g.dropLow + ' scores'));
+      if (g.dropHigh) dropBits.push('your highest ' + (g.dropHigh === 1 ? 'score' : g.dropHigh + ' scores'));
+      var drop = g.drops ? '<div class="notice tiny">This group drops ' + dropBits.join(' and ') + '. Par drops them the same way Canvas does.</div>' : '';
       var zero = an.weighted && g.weight === 0 && (g.R > 0 || g.G > 0) ? '<div class="notice tiny">This group has 0% weight, so it doesn\'t change your grade.</div>' : '';
       var rows = [];
       g.remaining.slice().sort(function (x, y) { return (Date.parse(x.a.due) || Infinity) - (Date.parse(y.a.due) || Infinity); }).forEach(function (r) {

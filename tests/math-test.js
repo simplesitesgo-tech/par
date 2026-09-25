@@ -64,6 +64,26 @@ r = Par.analyze({ id: 'c6', weighted: true, groups: [{ id: 'g', weight: 0, assig
 eq('zero weights fallback p', r.p, 0.8);
 eq('zero weights flagged', r.weightsBroken, true);
 
+// Drop rules, done the Canvas way.
+// Quizzes 2/10, 9/10, 10/10 with "drop lowest 1": the 2 is dropped, so 19/20 = 95%.
+const q = (list, rules) => ({ id: 'q', weighted: false, groups: [{ id: 'g', rules, assignments: list }] });
+r = Par.analyze(q([A('q1', 10, 2), A('q2', 10, 9), A('q3', 10, 10)], { drop_lowest: 1 }), {});
+eq('drop lowest current', r.current, 95);
+// Different sizes: 5/10 and 40/50. Dropping the 5/10 leaves 80%, dropping the 40/50 leaves 50%. Canvas keeps the best: 80%.
+r = Par.analyze(q([A('a', 10, 5), A('b', 50, 40)], { drop_lowest: 1 }), {});
+eq('drop picks best result', r.current, 80);
+// never_drop protects an assignment, so the other one is dropped instead.
+r = Par.analyze(q([A('a', 10, 5), A('b', 50, 40)], { drop_lowest: 1, never_drop: ['a'] }), {});
+eq('never drop respected', r.current, 50);
+// drop highest 1 from 6/10, 9/10: keeps the 6, so 60%.
+r = Par.analyze(q([A('a', 10, 6), A('b', 10, 9)], { drop_highest: 1 }), {});
+eq('drop highest current', r.current, 60);
+// Needed with a drop: 9/10 and 10/10 done, two 10 point quizzes left, drop lowest 1, target 95%.
+// If p is at least 0.9 the 9 gets dropped: (10 + 20p) / 30 = 0.95, so p = 0.925 and each quiz needs 9.3 (rounded up).
+r = Par.analyze(q([A('a', 10, 9), A('b', 10, 10), A('c', 10), A('d', 10)], { drop_lowest: 1 }), { target: 95 });
+eq('drop needed p', Math.round(r.p * 1e6) / 1e6, 0.925);
+eq('drop needed score', Par.need(r, 10).score, 9.3);
+
 // Bad pasted data is rejected with a friendly message.
 for (const bad of ['', 'hello', '{"courses": []}', '[1,2]', 'null', '{"courses":[{"nope":1}]}']) {
   let msg = '';
