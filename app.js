@@ -796,7 +796,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
   function cardInner(c, an, isDemo) {
     var pl = parLine(an);
     var check = an.matches === true ? '<span class="match ok" title="Par\'s math matches the grade Canvas shows">' + icoCheck() + 'Matches Canvas</span>' :
-      an.matches === false ? '<span class="match bad">Doesn\'t match Canvas</span>' : '';
+      an.matches === false ? '<span class="match bad">Doesn\'t match Canvas · open to add syllabus</span>' : '';
     return '<div class="card-top"><span class="code mono">' + esc(c.code || 'CLASS') + '</span>' + pill(an) + '</div>' +
       '<h3 class="card-name">' + esc(c.name) + '</h3>' +
       '<div class="card-mid">' +
@@ -987,7 +987,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') (function 
           '<div class="card-top"><span class="code mono">' + esc(c.code || 'CLASS') + '</span>' + pill(an) + '</div>' +
           '<h1>' + esc(c.name) + '</h1>' +
           '<p class="headline">' + esc(headline(an)) + '</p>' +
-          '<div class="hero-actions">' + targetButton(c, an) + extra + (anyPred ? '<button class="btn small ghost" data-action="clear-whatif" data-course="' + esc(c.id) + '">Clear what-ifs</button>' : '') + '</div>' +
+          '<div class="hero-actions">' + targetButton(c, an) + extra +
+            '<button class="btn small ghost" data-action="scroll-to" data-target="syllabus"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>' + (p.sylApplied ? 'Syllabus weights on' : 'Add syllabus') + '</button>' +
+            (anyPred ? '<button class="btn small ghost" data-action="clear-whatif" data-course="' + esc(c.id) + '">Clear what-ifs</button>' : '') + '</div>' +
           matchBox +
         '</div>' +
         '<div class="hero-r">' +
